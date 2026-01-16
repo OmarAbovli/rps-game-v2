@@ -9,8 +9,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "three": "^0.160.0",
-    "peerjs": "^1.5.2"
+    "@supabase/supabase-js": "^2.90.1",
+    "peerjs": "^1.5.2",
+    "three": "^0.160.0"
   },
   "devDependencies": {
     "vite": "^5.0.0"

@@ -23,9 +23,40 @@
   <!-- Game Canvas Container -->
   <div id="game-container"></div>
 
+  <!-- AUTH SCREEN -->
+  <div id="auth-screen" class="ui-screen">
+    <div class="menu-content auth-content">
+      <h1>🔐 RPS ARENA</h1>
+
+      <!-- LOGIN FORM -->
+      <div id="login-container">
+        <h2>Login</h2>
+        <input type="email" id="login-email" placeholder="Email" class="auth-input">
+        <input type="password" id="login-pass" placeholder="Password" class="auth-input">
+        <button id="btn-submit-login" class="btn btn-primary">Login</button>
+        <p>Don't have an account? <a href="#" id="btn-show-register">Register</a></p>
+      </div>
+
+      <!-- REGISTER FORM -->
+      <div id="register-container" class="hidden">
+        <h2>Create Account</h2>
+        <input type="text" id="register-username" placeholder="Username" class="auth-input">
+        <input type="email" id="register-email" placeholder="Email" class="auth-input">
+        <input type="password" id="register-pass" placeholder="Password" class="auth-input">
+        <button id="btn-submit-register" class="btn btn-primary">Sign Up</button>
+        <p>Already have an account? <a href="#" id="btn-show-login">Login</a></p>
+      </div>
+    </div>
+  </div>
+
   <!-- Main Menu UI -->
   <div id="main-menu" class="ui-screen">
     <div class="menu-content">
+      <!-- User Profile (Top Right) -->
+      <div class="user-profile">
+        <span id="user-display-name" class="user-display-name">...</span>
+      </div>
+
       <h1 class="game-title">
         <span class="rock">🪨</span>
         <span class="paper">📄</span>
@@ -64,14 +95,23 @@
   <!-- Lobby Screen -->
   <div id="lobby-screen" class="ui-screen hidden">
     <div class="lobby-content">
-      <h2>Party Lobby</h2>
+      <h2>Lobby</h2>
+
       <div class="party-id-display">
-        <span>Party ID:</span>
-        <span id="lobby-party-id" class="party-code">------</span>
-        <button id="btn-copy-id" class="btn-icon" title="Copy">📋</button>
+        <span>Party Code:</span>
+        <span id="lobby-party-id" class="party-code">----</span>
+        <button id="btn-copy-id" class="btn-icon">📋</button>
+      </div>
+
+      <!-- SOCIAL INVITE PANEL -->
+      <div id="social-invite-panel" class="social-panel">
+        <input type="text" id="invite-username" placeholder="Enter Username to Invite" class="auth-input"
+          style="text-align:center;">
+        <button id="btn-send-invite" class="btn btn-secondary" style="width:100%">Invite Friend 📩</button>
       </div>
 
       <div class="players-list">
+        <!-- Player Slots (Generated JS) -->
         <div class="player-slot" id="player-1">
           <span class="player-icon">🪨</span>
           <span class="player-name">Waiting...</span>

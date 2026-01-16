@@ -1,6 +1,6 @@
-// RPS Arena - Main Entry Point
 import * as THREE from 'three';
 import { Game } from './game/Game.js';
+import { IdentityUI } from './ui/IdentityUI.js';
 import { UIManager } from './ui/UIManager.js';
 import { NetworkManager } from './network/NetworkManager.js';
 import { AudioManager } from './audio/AudioManager.js';
@@ -13,6 +13,7 @@ class RPSArena {
         this.renderer = null;
         this.game = null;
         this.ui = null;
+        this.identityUi = null; // Identity Manager
         this.network = null;
         this.audio = null;
         this.clock = new THREE.Clock();
@@ -39,11 +40,25 @@ class RPSArena {
         // Lighting
         this.setupLighting();
 
-        // Initialize managers
-        this.audio = new AudioManager();
-        this.network = new NetworkManager(this);
-        this.game = new Game(this);
-        this.ui = new UIManager(this);
+        // Initialize managers (Safe Init)
+        try {
+            this.audio = new AudioManager();
+            this.network = new NetworkManager(this);
+            this.game = new Game(this);
+
+            // Identity and UI (Essential for buttons)
+            try {
+                this.identityUi = new IdentityUI(this);
+            } catch (e) {
+                console.error('IdentityUI failed to init:', e);
+            }
+
+            this.ui = new UIManager(this);
+        } catch (e) {
+            console.error('Critical manager initialization failure:', e);
+            // Fallback: at least try to show UI if UIManager exists
+            if (!this.ui) this.ui = new UIManager(this);
+        }
 
         // Event listeners
         window.addEventListener('resize', () => this.onResize());

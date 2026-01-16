@@ -1,6 +1,8 @@
 // NetworkManager - PeerJS-based multiplayer with real-time sync
 import { SOLDIER_TYPES, GAME_CONFIG } from '../utils/constants.js';
 
+import { IdentityService } from '../services/SupabaseClient.js';
+
 export class NetworkManager {
     constructor(app) {
         this.app = app;
@@ -22,7 +24,7 @@ export class NetworkManager {
 
     initPeer() {
         this.loadPeerJS().then(() => {
-            console.log('📡 PeerJS ready');
+            console.log(' PeerJS ready');
         });
     }
 
@@ -57,7 +59,10 @@ export class NetworkManager {
         });
 
         this.peer.on('open', (id) => {
-            console.log('🎉 Party created:', id);
+            console.log(' Party created:', id);
+
+            // Sync Identity to DB
+            IdentityService.updatePeerId(id);
 
             this.players.set(this.localPlayerType, {
                 peerId: id,
@@ -93,13 +98,13 @@ export class NetworkManager {
 
         // 1. REUSE existing Peer if active (Don't destroy! User Request)
         if (this.peer && !this.peer.destroyed) {
-            console.log('♻️ Reusing existing Peer:', this.peer.id);
+            console.log(' Reusing existing Peer:', this.peer.id);
             this.connectToHost();
             return;
         }
 
         // 2. Initialize new Peer only if strictly necessary
-        console.log('🆕 Initializing new Peer...');
+        console.log(' Initializing new Peer...');
         // CONFIG: Google STUN (Standard)
         this.peer = new Peer(null, {
             debug: 2,
@@ -113,13 +118,13 @@ export class NetworkManager {
 
         // 3. Setup Connection Timeout (3m)
         this.connectionTimer = setTimeout(() => {
-            console.error('❌ Connection timed out');
+            console.error(' Connection timed out');
             alert('Connection timed out! Try refreshing the page.');
             this.app.ui.hideJoinModal();
         }, 180000);
 
         this.peer.on('open', (localId) => {
-            console.log('📡 Peer Open. ID:', localId);
+            console.log(' Peer Open. ID:', localId);
             this.connectToHost();
         });
 
@@ -135,14 +140,14 @@ export class NetworkManager {
     connectToHost() {
         if (!this.peer || this.peer.destroyed) return;
 
-        console.log('📡 Dialing Host:', this.partyId);
+        console.log(' Dialing Host:', this.partyId);
 
         // Reliable: true (TCP) - User confirmed this "worked slowly" before
         const conn = this.peer.connect(this.partyId, { reliable: true });
 
         conn.on('open', () => {
             if (this.connectionTimer) clearTimeout(this.connectionTimer);
-            console.log('✅ Channel OPEN!');
+            console.log(' Channel OPEN!');
             this.connections.set(this.partyId, conn);
 
             conn.send({
@@ -151,21 +156,48 @@ export class NetworkManager {
             });
         });
 
-        conn.peerConnection.oniceconnectionstatechange = () => {
-            const state = conn.peerConnection.iceConnectionState;
-            console.log(`🧊 ICE State: ${state}`);
+        // --- DEEP DIAGNOSTICS START ---
+        if (conn.peerConnection) {
+            // 1. Monitor Candidate Gathering (Check if STUN is working)
+            conn.peerConnection.onicecandidate = (event) => {
+                if (event.candidate) {
+                    const type = event.candidate.type; // 'host' (local), 'srflx' (STUN), 'relay' (TURN)
+                    const protocol = event.candidate.protocol;
+                    console.log(` Candidate Found: [${type.toUpperCase()}] ${protocol}://...`);
 
-            if (state === 'disconnected') {
-                console.warn('⚠️ ICE Disconnected. Waiting for recovery...');
-                // Do NOT close/hard reset immediately. ICE can sometimes recover.
-                // PeerJS naturally handles some retries.
-            }
-        };
+                    if (type === 'srflx') {
+                        console.log('  STUN success: Public IP found.');
+                    }
+                } else {
+                    console.log(' Candidate gathering finished.');
+                }
+            };
+
+            // 2. Monitor Specific ICE Errors (Firewall/Blocking)
+            conn.peerConnection.onicecandidateerror = (event) => {
+                console.error('  ICE Error:', event.errorCode, event.errorText);
+                console.error('    URL:', event.url || 'N/A');
+                alert(`Network Blocked: ICE Error ${event.errorCode}. Firewall might be blocking UDP/TCP.`);
+            };
+
+            // 3. Monitor State Changes
+            conn.peerConnection.oniceconnectionstatechange = () => {
+                const state = conn.peerConnection.iceConnectionState;
+                console.log(` ICE State: ${state}`);
+
+                if (state === 'disconnected') {
+                    console.warn('  ICE Disconnected. Possible NAT Timeout or Network Switch.');
+                } else if (state === 'failed') {
+                    console.error('  ICE Failed. Critical Network Incompatibility.');
+                }
+            };
+        }
+        // --- DEEP DIAGNOSTICS END ---
 
         conn.on('data', (data) => this.handleMessage(conn, data));
 
         conn.on('close', () => {
-            console.log('❌ Connection closed');
+            console.log(' Connection closed');
             if (this.connections.has(this.partyId)) {
                 this.handleHostDisconnect();
             }
@@ -175,7 +207,7 @@ export class NetworkManager {
     }
 
     handleIncomingConnection(conn) {
-        console.log('📨 Incoming connection:', conn.peer);
+        console.log(' Incoming connection:', conn.peer);
 
         conn.on('open', () => {
             this.connections.set(conn.peer, conn);

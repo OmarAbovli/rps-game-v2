@@ -53,7 +53,8 @@ export class NetworkManager {
             config: {
                 iceServers: [
                     { urls: 'stun:stun.l.google.com:19302' },
-                    { urls: 'stun:stun1.l.google.com:19302' }
+                    { urls: 'stun:stun1.l.google.com:19302' },
+                    { urls: 'stun:stun.services.mozilla.com' }
                 ]
             }
         });
@@ -111,7 +112,8 @@ export class NetworkManager {
             config: {
                 iceServers: [
                     { urls: 'stun:stun.l.google.com:19302' },
-                    { urls: 'stun:stun1.l.google.com:19302' }
+                    { urls: 'stun:stun1.l.google.com:19302' },
+                    { urls: 'stun:stun.services.mozilla.com' }
                 ]
             }
         });
@@ -142,8 +144,8 @@ export class NetworkManager {
 
         console.log(' Dialing Host:', this.partyId);
 
-        // Reliable: true (TCP) - User confirmed this "worked slowly" before
-        const conn = this.peer.connect(this.partyId, { reliable: true });
+        // UDP (reliable: false) is much better for NAT traversal and real-time games
+        const conn = this.peer.connect(this.partyId, { reliable: false });
 
         conn.on('open', () => {
             if (this.connectionTimer) clearTimeout(this.connectionTimer);
@@ -175,9 +177,13 @@ export class NetworkManager {
 
             // 2. Monitor Specific ICE Errors (Firewall/Blocking)
             conn.peerConnection.onicecandidateerror = (event) => {
-                console.error('  ICE Error:', event.errorCode, event.errorText);
-                console.error('    URL:', event.url || 'N/A');
-                alert(`Network Blocked: ICE Error ${event.errorCode}. Firewall might be blocking UDP/TCP.`);
+                // 701 is common and often non-critical if SRFLX is found
+                if (event.errorCode === 701) {
+                    console.warn(`  ICE Warning (701): STUN lookup failed for ${event.url}. Trying others...`);
+                } else {
+                    console.error('  ICE Error:', event.errorCode, event.errorText);
+                    console.error('    URL:', event.url || 'N/A');
+                }
             };
 
             // 3. Monitor State Changes
@@ -185,10 +191,24 @@ export class NetworkManager {
                 const state = conn.peerConnection.iceConnectionState;
                 console.log(` ICE State: ${state}`);
 
-                if (state === 'disconnected') {
+                if (state === 'connected' || state === 'completed') {
+                    console.log('  ICE Connected! P2P link established.');
+                    if (this.iceCheckTimer) clearTimeout(this.iceCheckTimer);
+                } else if (state === 'checking') {
+                    // Start a 15s timer. If still checking after 15s, it's a NAT block
+                    if (this.iceCheckTimer) clearTimeout(this.iceCheckTimer);
+                    this.iceCheckTimer = setTimeout(() => {
+                        const currentState = conn.peerConnection.iceConnectionState;
+                        if (currentState === 'checking' || currentState === 'gathering') {
+                            console.error('  ICE STUCK: Connection blocked by Symmetric NAT/Firewall.');
+                            alert('Connection stuck! Possible Symmetric NAT. Try a different network (e.g. Mobile Data) or check Firewall.');
+                        }
+                    }, 15000);
+                } else if (state === 'disconnected') {
                     console.warn('  ICE Disconnected. Possible NAT Timeout or Network Switch.');
                 } else if (state === 'failed') {
                     console.error('  ICE Failed. Critical Network Incompatibility.');
+                    alert('Connection failed. Your firewall or NAT settings are incompatible with P2P.');
                 }
             };
         }

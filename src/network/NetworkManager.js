@@ -98,75 +98,84 @@ export class NetworkManager {
         this.isHost = false;
 
         // 2. Initialize new Peer
-        // Use defaults: TCP (reliable), default Google STUN
+        // 2. Initialize new Peer
         this.peer = new Peer(null, {
-            debug: 2
+            debug: 2,
+            config: {
+                iceServers: [
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:stun1.l.google.com:19302' }
+                ]
+            }
         });
 
         // 3. Setup Connection Timeout (15s)
-        const connectionTimeout = setTimeout(() => {
+        this.connectionTimer = setTimeout(() => {
             console.error('❌ Connection timed out');
-            alert('Connection timed out! Host might be offline or code is wrong.');
+            alert('Connection timed out! Host might be offline.');
             this.app.ui.hideJoinModal();
             this.leaveParty();
-        }, 15000000);
+        }, 15000);
 
         this.peer.on('open', (localId) => {
             console.log('📡 Connecting to party:', this.partyId);
-
-
-            // Connect to host (Default to UDP/SCTP auto-negotiation, unreliable but faster)
-            // Connect to host (UDP for better NAT traversal)
-            const conn = this.peer.connect(this.partyId); // Default reliable: true
-
-            conn.on('open', () => {
-                clearTimeout(connectionTimeout); // Success
-                console.log('✅ Channel OPEN!');
-                this.connections.set(this.partyId, conn);
-
-                conn.send({
-                    type: 'join_request',
-                    peerId: localId
-                });
-            });
-
-            // Debug ICE State
-            conn.peerConnection.oniceconnectionstatechange = () => {
-                console.log('🧊 ICE State:', conn.peerConnection.iceConnectionState);
-            };
-
-            conn.on('data', (data) => {
-                console.log('📥 Received:', data); // Log all data
-                this.handleMessage(conn, data);
-            });
-
-            conn.on('close', () => {
-                console.log('❌ Disconnected from host');
-                this.handleHostDisconnect();
-            });
-
-            conn.on('error', (err) => {
-                clearTimeout(connectionTimeout);
-                console.error('Connection error:', err);
-                alert('Failed to connect to party.');
-                this.app.ui.hideJoinModal();
-            });
-        });
-
-        this.peer.on('connection', (conn) => {
-            this.handleIncomingConnection(conn);
+            this.connectToHost();
         });
 
         this.peer.on('error', (err) => {
-            clearTimeout(connectionTimeout);
+            clearTimeout(this.connectionTimer);
             console.error('Peer error:', err);
-            if (err.type === 'peer-unavailable') {
-                alert('Party not found! Check the code.');
-            } else {
-                alert(`Connection Error: ${err.type}`);
-            }
+            alert(`Error: ${err.type}`);
             this.app.ui.hideJoinModal();
         });
+    }
+
+    connectToHost(retryCount = 0) {
+        if (retryCount > 3) {
+            console.error('❌ Max retries reached');
+            alert('Unable to connect after multiple attempts.');
+            this.leaveParty();
+            return;
+        }
+
+        if (retryCount > 0) console.log(`🔄 Retry attempt ${retryCount}...`);
+
+        const conn = this.peer.connect(this.partyId, { reliable: true });
+
+        conn.on('open', () => {
+            clearTimeout(this.connectionTimer);
+            console.log('✅ Channel OPEN!');
+            this.connections.set(this.partyId, conn);
+
+            conn.send({
+                type: 'join_request',
+                peerId: this.peer.id
+            });
+        });
+
+        // Auto-Retry on ICE failure
+        conn.peerConnection.oniceconnectionstatechange = () => {
+            const state = conn.peerConnection.iceConnectionState;
+            console.log(`🧊 ICE State: ${state}`);
+
+            if (state === 'disconnected' || state === 'failed') {
+                console.warn('⚠️ ICE Failed, retrying...');
+                conn.close();
+                setTimeout(() => this.connectToHost(retryCount + 1), 1000);
+            }
+        };
+
+        conn.on('data', (data) => this.handleMessage(conn, data));
+
+        conn.on('close', () => {
+            console.log('❌ Connection closed');
+            // Only handle disconnect if we were fully connected
+            if (this.connections.has(this.partyId)) {
+                this.handleHostDisconnect();
+            }
+        });
+
+        conn.on('error', (err) => console.error('Conn error:', err));
     }
 
     handleIncomingConnection(conn) {

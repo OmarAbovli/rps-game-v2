@@ -98,24 +98,25 @@ export class NetworkManager {
         this.isHost = false;
 
         // 2. Initialize new Peer
-        // Production Config: Google STUN for public internet access
+        // STUN: Multi-provider list for maximum connectivity
         this.peer = new Peer(null, {
             debug: 2,
             config: {
                 iceServers: [
                     { urls: 'stun:stun.l.google.com:19302' },
-                    { urls: 'stun:stun1.l.google.com:19302' }
+                    { urls: 'stun:stun1.l.google.com:19302' },
+                    { urls: 'stun:global.stun.twilio.com:3478' }
                 ]
             }
         });
 
-        // 3. Setup Connection Timeout
+        // 3. Setup Connection Timeout (15s)
         this.connectionTimer = setTimeout(() => {
             console.error('❌ Connection timed out');
             alert('Connection timed out! Host might be offline.');
             this.app.ui.hideJoinModal();
             this.leaveParty();
-        }, 6900000);
+        }, 15000);
 
         this.peer.on('open', (localId) => {
             console.log('📡 Connecting to party:', this.partyId);
@@ -133,15 +134,15 @@ export class NetworkManager {
     connectToHost(retryCount = 0) {
         if (retryCount > 3) {
             console.error('❌ Max retries reached');
-            alert('Unable to connect after multiple attempts.');
+            alert('Unable to connect. Check internet connection.');
             this.leaveParty();
             return;
         }
 
         if (retryCount > 0) console.log(`🔄 Retry attempt ${retryCount}...`);
 
-        // Reliable: true (TCP) is standard for stable production connections
-        const conn = this.peer.connect(this.partyId, { reliable: true });
+        // Reliable: false (UDP) is CRITICAL for Vercel/Public Internet to bypass strict NATs
+        const conn = this.peer.connect(this.partyId, { reliable: false });
 
         conn.on('open', () => {
             clearTimeout(this.connectionTimer);

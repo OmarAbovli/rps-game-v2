@@ -47,7 +47,7 @@ export class NetworkManager {
 
         // Initialize Peer for Host
         this.peer = new Peer(this.partyId, {
-            debug: 1,
+            debug: 2,
             config: {
                 iceServers: [
                     { urls: 'stun:stun.l.google.com:19302' },
@@ -87,8 +87,10 @@ export class NetworkManager {
         });
     }
 
-    joinParty(partyId) {
-        // 1. Clean up potential zombie connections
+    joinParty(partyId, retryAttempts = 0) {
+        // 1. Reset state & Clean up
+        if (this.connectionTimer) clearTimeout(this.connectionTimer);
+
         if (this.peer) {
             this.peer.destroy();
             this.peer = null;
@@ -97,52 +99,60 @@ export class NetworkManager {
         this.partyId = partyId.toUpperCase();
         this.isHost = false;
 
+        if (retryAttempts > 5) {
+            console.error('❌ Max Global Retries reached');
+            alert('Unable to connect. Host might be offline or blocked.');
+            this.app.ui.hideJoinModal();
+            this.leaveParty();
+            return;
+        }
+
+        if (retryAttempts > 0) console.log(`🔄 Global Retry attempt ${retryAttempts}...`);
+
         // 2. Initialize new Peer
-        // STUN: Multi-provider list for maximum connectivity
+        // CONFIG: Google STUN only (Most reliable)
         this.peer = new Peer(null, {
             debug: 2,
             config: {
                 iceServers: [
                     { urls: 'stun:stun.l.google.com:19302' },
-                    { urls: 'stun:stun1.l.google.com:19302' },
-                    { urls: 'stun:global.stun.twilio.com:3478' }
+                    { urls: 'stun:stun1.l.google.com:19302' }
                 ]
             }
         });
 
-        // 3. Setup Connection Timeout (15s)
+        // 3. Setup Connection Timeout (3 Minutes)
         this.connectionTimer = setTimeout(() => {
             console.error('❌ Connection timed out');
-            alert('Connection timed out! Host might be offline.');
-            this.app.ui.hideJoinModal();
-            this.leaveParty();
-        }, 15000);
+            alert('Connection timed out. Trying a hard reset...');
+            // Try one last hard reset if it's just hanging
+            this.joinParty(this.partyId, retryAttempts + 1);
+        }, 180000);
 
         this.peer.on('open', (localId) => {
             console.log('📡 Connecting to party:', this.partyId);
-            this.connectToHost();
+            this.connectToHost(retryAttempts);
         });
 
         this.peer.on('error', (err) => {
             clearTimeout(this.connectionTimer);
             console.error('Peer error:', err);
-            alert(`Error: ${err.type}`);
-            this.app.ui.hideJoinModal();
+            // Critical: If ID unavailable, Host is definitely gone or we have network split
+            if (err.type === 'peer-unavailable') {
+                alert('Party ID not found. The Host is offline.');
+                this.app.ui.hideJoinModal();
+                this.leaveParty();
+            } else {
+                // For other errors, try a hard reset
+                console.warn('Handling Peer Error with Hard Reset...');
+                setTimeout(() => this.joinParty(this.partyId, retryAttempts + 1), 2000);
+            }
         });
     }
 
-    connectToHost(retryCount = 0) {
-        if (retryCount > 3) {
-            console.error('❌ Max retries reached');
-            alert('Unable to connect. Check internet connection.');
-            this.leaveParty();
-            return;
-        }
-
-        if (retryCount > 0) console.log(`🔄 Retry attempt ${retryCount}...`);
-
-        // Reliable: false (UDP) is CRITICAL for Vercel/Public Internet to bypass strict NATs
-        const conn = this.peer.connect(this.partyId, { reliable: false });
+    connectToHost(retryAttempts) {
+        // Reliable: true (TCP) - Best for Firewall Traversal
+        const conn = this.peer.connect(this.partyId, { reliable: true });
 
         conn.on('open', () => {
             clearTimeout(this.connectionTimer);
@@ -155,15 +165,19 @@ export class NetworkManager {
             });
         });
 
-        // Auto-Retry on ICE failure
+        // Auto-Retry on ICE failure -> TRIGGERS HARD RESET
         conn.peerConnection.oniceconnectionstatechange = () => {
+            // Safe check in case conn closed immediately
+            if (!conn.peerConnection) return;
+
             const state = conn.peerConnection.iceConnectionState;
             console.log(`🧊 ICE State: ${state}`);
 
             if (state === 'disconnected' || state === 'failed') {
-                console.warn('⚠️ ICE Failed, retrying...');
+                console.warn('⚠️ ICE Failed. Triggering HARD RESET...');
                 conn.close();
-                setTimeout(() => this.connectToHost(retryCount + 1), 1000);
+                // Destroy Peer and Start Over (New ID, Fresh NAT)
+                setTimeout(() => this.joinParty(this.partyId, retryAttempts + 1), 1000);
             }
         };
 

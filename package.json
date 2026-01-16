@@ -1,0 +1,18 @@
+{
+  "name": "rps-arena",
+  "version": "1.0.0",
+  "description": "Rock-Paper-Scissors Arena - Multiplayer Top-Down Game",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "three": "^0.160.0",
+    "peerjs": "^1.5.2"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0"
+  }
+}

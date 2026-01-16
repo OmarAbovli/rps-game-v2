@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RPS Arena - Rock Paper Scissors Battle!</title>
+  <link rel="stylesheet" href="./src/styles/main.css">
+
+  <!-- Import Maps for ES Modules from CDN -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <!-- Game Canvas Container -->
+  <div id="game-container"></div>
+
+  <!-- Main Menu UI -->
+  <div id="main-menu" class="ui-screen">
+    <div class="menu-content">
+      <h1 class="game-title">
+        <span class="rock">🪨</span>
+        <span class="paper">📄</span>
+        <span class="scissors">✂️</span>
+        <br>RPS ARENA
+      </h1>
+      <p class="tagline">Rock. Paper. Scissors. DOMINATE!</p>
+
+      <div class="menu-buttons">
+        <button id="btn-create-party" class="btn btn-primary">
+           Create Party
+        </button>
+        <button id="btn-join-party" class="btn btn-secondary">
+           Join Party
+        </button>
+        <button id="btn-solo-test" class="btn btn-secondary"
+          style="margin-top: 20px; background: linear-gradient(180deg, #9b59b6, #8e44ad);">
+           Solo Test Mode
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Join Party Modal -->
+  <div id="join-modal" class="ui-screen hidden">
+    <div class="modal-content">
+      <h2>Join Party</h2>
+      <input type="text" id="party-id-input" placeholder="Enter Party ID" maxlength="6">
+      <div class="modal-buttons">
+        <button id="btn-join-confirm" class="btn btn-primary">Join</button>
+        <button id="btn-join-cancel" class="btn btn-secondary">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Lobby Screen -->
+  <div id="lobby-screen" class="ui-screen hidden">
+    <div class="lobby-content">
+      <h2>Party Lobby</h2>
+      <div class="party-id-display">
+        <span>Party ID:</span>
+        <span id="lobby-party-id" class="party-code">------</span>
+        <button id="btn-copy-id" class="btn-icon" title="Copy">📋</button>
+      </div>
+
+      <div class="players-list">
+        <div class="player-slot" id="player-1">
+          <span class="player-icon">🪨</span>
+          <span class="player-name">Waiting...</span>
+        </div>
+        <div class="player-slot" id="player-2">
+          <span class="player-icon">📄</span>
+          <span class="player-name">Waiting...</span>
+        </div>
+        <div class="player-slot" id="player-3">
+          <span class="player-icon">✂️</span>
+          <span class="player-name">Waiting...</span>
+        </div>
+      </div>
+
+      <button id="btn-start-game" class="btn btn-primary btn-large" disabled>
+         Start Game (3/3 Players)
+      </button>
+    </div>
+  </div>
+
+  <!-- Placement Phase UI -->
+  <div id="placement-ui" class="ui-overlay hidden">
+    <div class="placement-timer">
+      <span id="placement-countdown">10</span>
+      <span>Place your soldiers!</span>
+    </div>
+    <button id="btn-ready" class="btn btn-primary">✓ Ready</button>
+  </div>
+
+  <!-- In-Game HUD -->
+  <div id="game-hud" class="ui-overlay hidden">
+    <div class="hud-top">
+      <div class="player-counter" id="counter-rock">
+        <span class="counter-icon">🪨</span>
+        <span class="counter-value">5</span>
+      </div>
+      <div class="player-counter" id="counter-paper">
+        <span class="counter-icon">📄</span>
+        <span class="counter-value">5</span>
+      </div>
+      <div class="player-counter" id="counter-scissors">
+        <span class="counter-icon">✂️</span>
+        <span class="counter-value">5</span>
+      </div>
+    </div>
+
+    <div class="powerup-indicator hidden" id="powerup-active">
+      <span class="powerup-icon">⚡</span>
+      <span class="powerup-timer">3s</span>
+    </div>
+  </div>
+
+  <!-- Game Over Screen -->
+  <div id="game-over" class="ui-screen hidden">
+    <div class="game-over-content">
+      <h1 id="winner-text">🏆 ROCK WINS! 🏆</h1>
+      <div class="final-stats">
+        <p>Total soldiers conquered: <span id="final-count">15</span></p>
+      </div>
+      <div class="game-over-buttons">
+        <button id="btn-play-again" class="btn btn-primary"> Play Again</button>
+        <button id="btn-back-menu" class="btn btn-secondary"> Main Menu</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- PeerJS for Multiplayer -->
+  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+
+</html>

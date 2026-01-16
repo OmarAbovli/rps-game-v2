@@ -98,7 +98,7 @@ export class NetworkManager {
         this.isHost = false;
 
         // 2. Initialize new Peer
-        // 2. Initialize new Peer
+        // Production Config: Google STUN for public internet access
         this.peer = new Peer(null, {
             debug: 2,
             config: {
@@ -140,6 +140,7 @@ export class NetworkManager {
 
         if (retryCount > 0) console.log(`🔄 Retry attempt ${retryCount}...`);
 
+        // Reliable: true (TCP) is standard for stable production connections
         const conn = this.peer.connect(this.partyId, { reliable: true });
 
         conn.on('open', () => {

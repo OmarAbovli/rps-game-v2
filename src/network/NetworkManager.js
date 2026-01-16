@@ -109,13 +109,13 @@ export class NetworkManager {
             }
         });
 
-        // 3. Setup Connection Timeout (15s)
+        // 3. Setup Connection Timeout
         this.connectionTimer = setTimeout(() => {
             console.error('❌ Connection timed out');
             alert('Connection timed out! Host might be offline.');
             this.app.ui.hideJoinModal();
             this.leaveParty();
-        }, 1500000);
+        }, 6900000);
 
         this.peer.on('open', (localId) => {
             console.log('📡 Connecting to party:', this.partyId);

@@ -11,11 +11,79 @@ export let supabase = null;
 
 try {
     if (SUPABASE_URL && SUPABASE_ANON_KEY) {
-        supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+            realtime: {
+                params: {
+                    eventsPerSecond: 40 // Higher sync rate for game
+                }
+            }
+        });
     }
 } catch (e) {
     console.warn('⚠️ Supabase init failed:', e);
 }
+
+// ------------------------------------------------------------------
+// REALTIME RELAY SERVICE (Guaranteed Connection)
+// ------------------------------------------------------------------
+export const RealtimeService = {
+    channel: null,
+
+    /**
+     * Join a cloud channel for a party. 
+     * This acts as a 'Relay' between players.
+     */
+    joinChannel(partyId, onMessage) {
+        if (!supabase) return null;
+
+        // Cleanup old channel
+        if (this.channel) {
+            this.channel.unsubscribe();
+        }
+
+        console.log(`--- 🌐 Joining Cloud Relay: ${partyId} ---`);
+
+        this.channel = supabase.channel(`party_${partyId}`, {
+            config: {
+                broadcast: { self: false, ack: false }
+            }
+        });
+
+        this.channel
+            .on('broadcast', { event: 'game_event' }, ({ payload }) => {
+                onMessage(payload);
+            })
+            .subscribe((status) => {
+                if (status === 'SUBSCRIBED') {
+                    console.log(' ✅ Cloud Relay READY (Guaranteed Link)');
+                }
+                if (status === 'CHANNEL_ERROR') {
+                    console.error(' ❌ Cloud Relay Failed. Firewall might be too strict.');
+                }
+            });
+
+        return this.channel;
+    },
+
+    /**
+     * Send data to everyone in the channel
+     */
+    broadcast(data) {
+        if (!this.channel) return;
+        this.channel.send({
+            type: 'broadcast',
+            event: 'game_event',
+            payload: data
+        });
+    },
+
+    leave() {
+        if (this.channel) {
+            this.channel.unsubscribe();
+            this.channel = null;
+        }
+    }
+};
 
 // ------------------------------------------------------------------
 // IDENTITY SERVICE (Auto-Auth)

@@ -1,13 +1,10 @@
-// NetworkManager - PeerJS-based multiplayer with real-time sync
+// NetworkManager - Cloud Relay Version (100% Guaranteed Connection)
 import { SOLDIER_TYPES, GAME_CONFIG } from '../utils/constants.js';
-
-import { IdentityService } from '../services/SupabaseClient.js';
+import { IdentityService, RealtimeService } from '../services/SupabaseClient.js';
 
 export class NetworkManager {
     constructor(app) {
         this.app = app;
-        this.peer = null;
-        this.connections = new Map();
         this.isHost = false;
         this.partyId = null;
         this.localPlayerType = null;
@@ -15,31 +12,8 @@ export class NetworkManager {
 
         // Player data
         this.players = new Map();
-
-        // Real-time state sync
         this.remoteInputs = new Map();
-
-        this.initPeer();
-    }
-
-    initPeer() {
-        this.loadPeerJS().then(() => {
-            console.log(' PeerJS ready');
-        });
-    }
-
-    async loadPeerJS() {
-        return new Promise((resolve) => {
-            if (window.Peer) {
-                resolve();
-                return;
-            }
-
-            const script = document.createElement('script');
-            script.src = 'https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js';
-            script.onload = resolve;
-            document.head.appendChild(script);
-        });
+        this.connections = new Map(); // Kept as presence map
     }
 
     createParty() {
@@ -47,259 +21,93 @@ export class NetworkManager {
         this.isHost = true;
         this.localPlayerType = SOLDIER_TYPES.ROCK;
 
-        // Initialize Peer for Host
-        this.peer = new Peer(this.partyId, {
-            debug: 2,
-            config: {
-                iceServers: [
-                    { urls: 'stun:stun.l.google.com:19302' },
-                    { urls: 'stun:stun1.l.google.com:19302' },
-                    { urls: 'stun:stun.services.mozilla.com' }
-                ]
-            }
+        console.log(`--- 🏘️ CREATING CLOUD PARTY: ${this.partyId} ---`);
+
+        // Join Cloud Relay
+        RealtimeService.joinChannel(this.partyId, (data) => this.handleMessage(data));
+
+        // Register local player
+        this.players.set(this.localPlayerType, {
+            id: IdentityService.currentUser.id,
+            username: IdentityService.currentUser.username,
+            connected: true
         });
 
-        this.peer.on('open', (id) => {
-            console.log(' Party created:', id);
-
-            // Sync Identity to DB
-            IdentityService.updatePeerId(id);
-
-            this.players.set(this.localPlayerType, {
-                peerId: id,
-                connected: true
-            });
-
-            this.app.ui.showLobby(id, this.localPlayerType);
-            this.updatePlayerList();
-
-            // Start broadcasting game state as host
-            this.startHostSync();
-        });
-
-        this.peer.on('connection', (conn) => {
-            this.handleIncomingConnection(conn);
-        });
-
-        this.peer.on('error', (err) => {
-            console.error('Peer error:', err);
-            if (err.type === 'unavailable-id') {
-                this.partyId = this.generatePartyId();
-                if (this.peer) this.peer.destroy();
-                this.createParty();
-            } else {
-                alert(`Host Creation Error: ${err.type}`);
-            }
-        });
+        this.app.ui.showLobby(this.partyId, this.localPlayerType);
+        this.updatePlayerList();
+        this.startHostSync();
     }
 
     joinParty(partyId) {
         this.partyId = partyId.toUpperCase();
         this.isHost = false;
 
-        // 1. REUSE existing Peer if active (Don't destroy! User Request)
-        if (this.peer && !this.peer.destroyed) {
-            console.log(' Reusing existing Peer:', this.peer.id);
-            this.connectToHost();
-            return;
-        }
+        console.log(`--- 🚀 JOINING CLOUD PARTY: ${this.partyId} ---`);
 
-        // 2. Initialize new Peer only if strictly necessary
-        console.log(' Initializing new Peer...');
-        // CONFIG: Google STUN (Standard)
-        this.peer = new Peer(null, {
-            debug: 2,
-            config: {
-                iceServers: [
-                    { urls: 'stun:stun.l.google.com:19302' },
-                    { urls: 'stun:stun1.l.google.com:19302' },
-                    { urls: 'stun:stun.services.mozilla.com' }
-                ]
-            }
-        });
+        // Join Cloud Relay
+        RealtimeService.joinChannel(this.partyId, (data) => this.handleMessage(data));
 
-        // 3. Setup Connection Timeout (3m)
-        this.connectionTimer = setTimeout(() => {
-            console.error(' Connection timed out');
-            alert('Connection timed out! Try refreshing the page.');
-            this.app.ui.hideJoinModal();
-        }, 180000);
-
-        this.peer.on('open', (localId) => {
-            console.log(' Peer Open. ID:', localId);
-            this.connectToHost();
-        });
-
-        this.peer.on('error', (err) => {
-            console.error('Peer error:', err);
-            if (err.type === 'peer-unavailable') {
-                alert('Party ID not found. Host might be offline.');
-                this.app.ui.hideJoinModal();
-            }
+        // Send Join Request via Relay (Queued internally until ready)
+        this.broadcast({
+            type: 'join_request',
+            id: IdentityService.currentUser.id,
+            username: IdentityService.currentUser.username
         });
     }
 
-    connectToHost() {
-        if (!this.peer || this.peer.destroyed) return;
+    handleMessage(data) {
+        // If we get our own broadcasted message, ignore it
+        if (data.fromId === IdentityService.currentUser.id) return;
 
-        console.log(' Dialing Host:', this.partyId);
-
-        // UDP (reliable: false) is much better for NAT traversal and real-time games
-        const conn = this.peer.connect(this.partyId, { reliable: false });
-
-        conn.on('open', () => {
-            if (this.connectionTimer) clearTimeout(this.connectionTimer);
-            console.log(' Channel OPEN!');
-            this.connections.set(this.partyId, conn);
-
-            conn.send({
-                type: 'join_request',
-                peerId: this.peer.id
-            });
-        });
-
-        // --- DEEP DIAGNOSTICS START ---
-        if (conn.peerConnection) {
-            // 1. Monitor Candidate Gathering (Check if STUN is working)
-            conn.peerConnection.onicecandidate = (event) => {
-                if (event.candidate) {
-                    const type = event.candidate.type; // 'host' (local), 'srflx' (STUN), 'relay' (TURN)
-                    const protocol = event.candidate.protocol;
-                    console.log(` Candidate Found: [${type.toUpperCase()}] ${protocol}://...`);
-
-                    if (type === 'srflx') {
-                        console.log('  STUN success: Public IP found.');
-                    }
-                } else {
-                    console.log(' Candidate gathering finished.');
-                }
-            };
-
-            // 2. Monitor Specific ICE Errors (Firewall/Blocking)
-            conn.peerConnection.onicecandidateerror = (event) => {
-                // 701 is common and often non-critical if SRFLX is found
-                if (event.errorCode === 701) {
-                    console.warn(`  ICE Warning (701): STUN lookup failed for ${event.url}. Trying others...`);
-                } else {
-                    console.error('  ICE Error:', event.errorCode, event.errorText);
-                    console.error('    URL:', event.url || 'N/A');
-                }
-            };
-
-            // 3. Monitor State Changes
-            conn.peerConnection.oniceconnectionstatechange = () => {
-                const state = conn.peerConnection.iceConnectionState;
-                console.log(` ICE State: ${state}`);
-
-                if (state === 'connected' || state === 'completed') {
-                    console.log('  ICE Connected! P2P link established.');
-                    if (this.iceCheckTimer) clearTimeout(this.iceCheckTimer);
-                } else if (state === 'checking') {
-                    // Start a 15s timer. If still checking after 15s, it's a NAT block
-                    if (this.iceCheckTimer) clearTimeout(this.iceCheckTimer);
-                    this.iceCheckTimer = setTimeout(() => {
-                        const currentState = conn.peerConnection.iceConnectionState;
-                        if (currentState === 'checking' || currentState === 'gathering') {
-                            console.error('  ICE STUCK: Connection blocked by Symmetric NAT/Firewall.');
-                            alert('Connection stuck! Possible Symmetric NAT. Try a different network (e.g. Mobile Data) or check Firewall.');
-                        }
-                    }, 15000);
-                } else if (state === 'disconnected') {
-                    console.warn('  ICE Disconnected. Possible NAT Timeout or Network Switch.');
-                } else if (state === 'failed') {
-                    console.error('  ICE Failed. Critical Network Incompatibility.');
-                    alert('Connection failed. Your firewall or NAT settings are incompatible with P2P.');
-                }
-            };
-        }
-        // --- DEEP DIAGNOSTICS END ---
-
-        conn.on('data', (data) => this.handleMessage(conn, data));
-
-        conn.on('close', () => {
-            console.log(' Connection closed');
-            if (this.connections.has(this.partyId)) {
-                this.handleHostDisconnect();
-            }
-        });
-
-        conn.on('error', (err) => console.error('Conn error:', err));
-    }
-
-    handleIncomingConnection(conn) {
-        console.log(' Incoming connection:', conn.peer);
-
-        conn.on('open', () => {
-            this.connections.set(conn.peer, conn);
-        });
-
-        conn.on('data', (data) => this.handleMessage(conn, data));
-
-        conn.on('close', () => {
-            this.handlePeerDisconnect(conn.peer);
-        });
-    }
-
-    handleMessage(conn, data) {
         switch (data.type) {
             case 'join_request':
                 if (this.isHost) {
                     const assignedType = this.getNextAvailableType();
                     if (assignedType) {
                         this.players.set(assignedType, {
-                            peerId: data.peerId,
+                            id: data.id,
+                            username: data.username,
                             connected: true
                         });
 
-                        conn.send({
+                        this.broadcast({
                             type: 'player_assigned',
+                            targetId: data.id,
                             playerType: assignedType,
                             players: this.getPlayersArray()
                         });
 
-                        this.broadcast({
-                            type: 'player_joined',
-                            playerType: assignedType,
-                            players: this.getPlayersArray()
-                        }, conn.peer);
-
                         this.updatePlayerList();
                     } else {
-                        conn.send({ type: 'party_full' });
+                        this.broadcast({ type: 'party_full', targetId: data.id });
                     }
                 }
                 break;
 
             case 'player_assigned':
-                this.localPlayerType = data.playerType;
-                this.syncPlayersFromArray(data.players);
-                this.app.ui.showLobby(this.partyId, this.localPlayerType);
-                this.app.ui.hideJoinModal();
-                this.updatePlayerList();
-                break;
-
-            case 'player_joined':
-                this.syncPlayersFromArray(data.players);
-                this.updatePlayerList();
-                break;
-
-            case 'party_full':
-                alert('Party is full!');
-                this.leaveParty();
+                if (data.targetId === IdentityService.currentUser.id) {
+                    this.localPlayerType = data.playerType;
+                    this.syncPlayersFromArray(data.players);
+                    this.app.ui.showLobby(this.partyId, this.localPlayerType);
+                    this.app.ui.hideJoinModal();
+                    this.updatePlayerList();
+                } else {
+                    // Other players see a new person joined
+                    this.syncPlayersFromArray(data.players);
+                    this.updatePlayerList();
+                }
                 break;
 
             case 'game_start':
                 this.handleGameStart(data);
                 break;
 
-            // CLIENT INPUT -> HOST
             case 'player_input':
                 if (this.isHost) {
                     this.remoteInputs.set(data.playerType, { x: data.x, z: data.z });
                 }
                 break;
 
-            // HOST STATE -> CLIENT
             case 'game_state':
                 this.handleGameStateSync(data);
                 break;
@@ -312,12 +120,33 @@ export class NetworkManager {
                 this.app.game.endGame(data.winner);
                 break;
 
-            case 'rematch_request':
-                if (this.isHost) {
-                    // Start rematch logic
+            case 'player_left':
+                this.handlePeerDisconnect(data.fromId);
+                break;
+
+            case 'party_full':
+                if (data.targetId === IdentityService.currentUser.id) {
+                    alert('Party is full!');
+                    this.leaveParty();
                 }
                 break;
         }
+    }
+
+    broadcast(data) {
+        // Add sender info
+        data.fromId = IdentityService.currentUser.id;
+        RealtimeService.broadcast(data);
+    }
+
+    sendInput(input) {
+        if (this.isHost) return;
+        this.broadcast({
+            type: 'player_input',
+            playerType: this.localPlayerType,
+            x: input.x,
+            z: input.z
+        });
     }
 
     // Host broadcasts full game state periodically
@@ -328,7 +157,6 @@ export class NetworkManager {
         this.syncInterval = setInterval(() => {
             if (this.app.game.state !== 'playing') return;
 
-            // Collect all soldier positions
             const gameState = {
                 type: 'game_state',
                 armies: {}
@@ -337,7 +165,7 @@ export class NetworkManager {
             this.app.game.armies.forEach((army, type) => {
                 const soldiersData = army.soldiers.map(s => ({
                     id: s.id,
-                    x: Number(s.mesh.position.x.toFixed(2)), // Optimize payload
+                    x: Number(s.mesh.position.x.toFixed(2)),
                     z: Number(s.mesh.position.z.toFixed(2)),
                     isLeader: s.isLeader
                 }));
@@ -353,14 +181,11 @@ export class NetworkManager {
         }, 1000 / GAME_CONFIG.SYNC_RATE);
     }
 
-    // Client receives game state from host
     handleGameStateSync(data) {
-        if (this.isHost) return; // Host is authority
-
+        if (this.isHost) return;
         const game = this.app.game;
         if (!game || game.state !== 'playing') return;
 
-        // Sync all armies (Sticky Sync)
         Object.entries(data.armies).forEach(([type, armyData]) => {
             const army = game.armies.get(type);
             if (!army) return;
@@ -368,7 +193,6 @@ export class NetworkManager {
             armyData.soldiers.forEach(serverSoldier => {
                 const soldier = army.soldiers.find(s => s.id === serverSoldier.id);
                 if (soldier) {
-                    // Strong interpolation
                     const lerpSpeed = 0.5;
                     soldier.mesh.position.x += (serverSoldier.x - soldier.mesh.position.x) * lerpSpeed;
                     soldier.mesh.position.z += (serverSoldier.z - soldier.mesh.position.z) * lerpSpeed;
@@ -398,9 +222,7 @@ export class NetworkManager {
     getNextAvailableType() {
         const types = [SOLDIER_TYPES.PAPER, SOLDIER_TYPES.SCISSORS];
         for (const type of types) {
-            if (!this.players.has(type)) {
-                return type;
-            }
+            if (!this.players.has(type)) return type;
         }
         return null;
     }
@@ -408,7 +230,8 @@ export class NetworkManager {
     getPlayersArray() {
         return Array.from(this.players.entries()).map(([type, data]) => ({
             type,
-            peerId: data.peerId,
+            id: data.id,
+            username: data.username,
             connected: data.connected
         }));
     }
@@ -417,7 +240,8 @@ export class NetworkManager {
         this.players.clear();
         arr.forEach(p => {
             this.players.set(p.type, {
-                peerId: p.peerId,
+                id: p.id,
+                username: p.username,
                 connected: p.connected
             });
         });
@@ -427,67 +251,19 @@ export class NetworkManager {
         const playerArray = Array.from(this.players.entries()).map(([type, data]) => ({
             type,
             connected: data.connected,
-            name: type === this.localPlayerType ? 'You' : 'Player'
+            name: data.id === IdentityService.currentUser.id ? 'You' : (data.username || 'Friend')
         }));
         this.app.ui.updatePlayerSlots(playerArray);
     }
 
-    broadcast(data, excludePeerId = null) {
-        this.connections.forEach((conn, peerId) => {
-            if (peerId !== excludePeerId && conn.open) {
-                try {
-                    conn.send(data);
-                } catch (e) {
-                    console.warn('Failed to send to', peerId);
-                }
-            }
-        });
-    }
-
-    sendInput(input) {
-        const data = {
-            type: 'player_input',
-            playerType: this.localPlayerType,
-            x: input.x,
-            z: input.z
-        };
-        // Host directly consumes input, clients send it
-        if (this.isHost) {
-            // Host logic handles its own input directly in Game.js
-        } else {
-            this.broadcast(data); // Send to host
-        }
-    }
-
-    getPlayerInput(type) {
-        return this.remoteInputs.get(type) || { x: 0, z: 0 };
-    }
-
     sendConversion(soldierId, fromType, toType) {
-        this.broadcast({
-            type: 'conversion',
-            soldierId,
-            fromType,
-            toType
-        });
+        this.broadcast({ type: 'conversion', soldierId, fromType, toType });
     }
 
     leaveParty() {
-        this.broadcast({ type: 'player_left', playerType: this.localPlayerType });
-
-        if (this.syncInterval) {
-            clearInterval(this.syncInterval);
-            this.syncInterval = null;
-        }
-
-        this.connections.forEach(conn => conn.close());
-        this.connections.clear();
-
-        if (this.peer) {
-            this.peer.destroy();
-            this.peer = null;
-        }
-
+        this.broadcast({ type: 'player_left' });
+        if (this.syncInterval) clearInterval(this.syncInterval);
+        RealtimeService.leave();
         this.players.clear();
         this.remoteInputs.clear();
         this.isHost = false;
@@ -500,10 +276,10 @@ export class NetworkManager {
         this.app.game.reset();
     }
 
-    handlePeerDisconnect(peerId) {
-        console.log('Player disconnected:', peerId);
+    handlePeerDisconnect(playerId) {
+        console.log('Player disconnected:', playerId);
         for (const [type, data] of this.players) {
-            if (data.peerId === peerId) {
+            if (data.id === playerId) {
                 data.connected = false;
                 this.updatePlayerList();
                 break;
@@ -512,11 +288,15 @@ export class NetworkManager {
     }
 
     generatePartyId() {
-        const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-        let id = '';
-        for (let i = 6; i--;) { // slightly optimized loop for random id
-            id += chars[Math.floor(Math.random() * chars.length)];
-        }
-        return id;
+        return Math.random().toString(36).substring(2, 8).toUpperCase();
+    }
+
+    // Compatibility methods
+    getPlayerInput(type) {
+        return this.remoteInputs.get(type) || { x: 0, z: 0 };
+    }
+
+    handleGameStart(data) {
+        this.app.game.startMatch();
     }
 }

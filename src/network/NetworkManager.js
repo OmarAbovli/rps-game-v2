@@ -115,7 +115,7 @@ export class NetworkManager {
             alert('Connection timed out! Host might be offline.');
             this.app.ui.hideJoinModal();
             this.leaveParty();
-        }, 15000);
+        }, 1500000);
 
         this.peer.on('open', (localId) => {
             console.log('📡 Connecting to party:', this.partyId);

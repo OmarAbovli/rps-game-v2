@@ -4,14 +4,14 @@ An epic, real-time multiplayer 3D strategy game where **Rock, Paper, and Scissor
 
 ![Arena Shot](https://via.placeholder.com/800x400?text=RPS+Arena+Gameplay)
 
-## 🎮 Project Overview
+##  Project Overview
 RPS Arena is a browser-based **Battle Royale** where 3 players control armies of Rock, Paper, and Scissors soldiers. The goal is simple: **Convert everyone else to your type.**
 
 It features a custom-built **Authoritative Host** networking system, allowing players to connect peer-to-peer (P2P) without a dedicated backend server, ensuring low-latency and cost-effective multiplayer.
 
 ---
 
-## 🛠️ Technology Stack & Decisions
+##  Technology Stack & Decisions
 
 We chose a lightweight, performance-first stack to ensure the game runs smoothly on any device without the overhead of heavy frameworks.
 
@@ -41,14 +41,14 @@ We chose a lightweight, performance-first stack to ensure the game runs smoothly
 
 ---
 
-## 🚀 Key Features
+##  Key Features
 
-### ⚔️ Gameplay Mechanics
+###  Gameplay Mechanics
 *   **Type Advantage:** Rock crushes Scissors, Scissors cuts Paper, Paper covers Rock.
 *   **Conversion:** Touching a weaker enemy converts them to your side instantly.
 *   **Leader Unit:** Your main character. If the leader dies, you lose control (but your army fights on!).
 
-### ⚡ Power-Up System
+###  Power-Up System
 Randomly spawning orbs that turn the tide of battle:
 *   **Speed Boost:** +50% movement speed.
 *   **Invincibility:** Immune to conversion for 3s.
@@ -56,14 +56,14 @@ Randomly spawning orbs that turn the tide of battle:
 *   **Reinforcement:** Spawns 3 extra soldiers instantly.
 *   **Clone Decoy:** Creates a fake leader to confuse enemies.
 
-### 🌐 Advanced Networking
+###  Advanced Networking
 *   **Lobby System:** Create or Join rooms using a simple 6-character code.
 *   **Reconnection Safety:** 15s timeout protection and zombie connection cleanup.
 *   **STUN Optimization:** Uses Google's STUN servers to penetrate firewalls and ensure rapid connection.
 
 ---
 
-## 📂 Project Structure
+##  Project Structure
 
 ```
 src/
@@ -82,16 +82,16 @@ src/
 
 ---
 
-## 💿 Installation & Running
+##  Installation & Running
 
 1. **Clone the repo**
    ```bash
-   git clone https://github.com/your-repo/rps-arena.git
+   git clone https://github.com/OmarAbovli/rps-game-v2.git
    ```
 
 2. **Install Dependencies**
    ```bash
-   npm install
+   npm i
    ```
 
 3. **Run Locally**
@@ -111,3 +111,4 @@ src/
 *   [ ] Mobile Touch Controls (Virtual Joystick).
 *   [ ] Background Music & SFX Settings.
 *   [ ] Global Server List (Matchmaking).
+*   [ ] some other unknown shit the is not looks like the other shit.

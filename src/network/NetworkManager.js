@@ -87,30 +87,20 @@ export class NetworkManager {
         });
     }
 
-    joinParty(partyId, retryAttempts = 0) {
-        // 1. Reset state & Clean up
-        if (this.connectionTimer) clearTimeout(this.connectionTimer);
-
-        if (this.peer) {
-            this.peer.destroy();
-            this.peer = null;
-        }
-
+    joinParty(partyId) {
         this.partyId = partyId.toUpperCase();
         this.isHost = false;
 
-        if (retryAttempts > 5) {
-            console.error('❌ Max Global Retries reached');
-            alert('Unable to connect. Host might be offline or blocked.');
-            this.app.ui.hideJoinModal();
-            this.leaveParty();
+        // 1. REUSE existing Peer if active (Don't destroy! User Request)
+        if (this.peer && !this.peer.destroyed) {
+            console.log('♻️ Reusing existing Peer:', this.peer.id);
+            this.connectToHost();
             return;
         }
 
-        if (retryAttempts > 0) console.log(`🔄 Global Retry attempt ${retryAttempts}...`);
-
-        // 2. Initialize new Peer
-        // CONFIG: Google STUN only (Most reliable)
+        // 2. Initialize new Peer only if strictly necessary
+        console.log('🆕 Initializing new Peer...');
+        // CONFIG: Google STUN (Standard)
         this.peer = new Peer(null, {
             debug: 2,
             config: {
@@ -121,41 +111,37 @@ export class NetworkManager {
             }
         });
 
-        // 3. Setup Connection Timeout (3 Minutes)
+        // 3. Setup Connection Timeout (3m)
         this.connectionTimer = setTimeout(() => {
             console.error('❌ Connection timed out');
-            alert('Connection timed out. Trying a hard reset...');
-            // Try one last hard reset if it's just hanging
-            this.joinParty(this.partyId, retryAttempts + 1);
+            alert('Connection timed out! Try refreshing the page.');
+            this.app.ui.hideJoinModal();
         }, 180000);
 
         this.peer.on('open', (localId) => {
-            console.log('📡 Connecting to party:', this.partyId);
-            this.connectToHost(retryAttempts);
+            console.log('📡 Peer Open. ID:', localId);
+            this.connectToHost();
         });
 
         this.peer.on('error', (err) => {
-            clearTimeout(this.connectionTimer);
             console.error('Peer error:', err);
-            // Critical: If ID unavailable, Host is definitely gone or we have network split
             if (err.type === 'peer-unavailable') {
-                alert('Party ID not found. The Host is offline.');
+                alert('Party ID not found. Host might be offline.');
                 this.app.ui.hideJoinModal();
-                this.leaveParty();
-            } else {
-                // For other errors, try a hard reset
-                console.warn('Handling Peer Error with Hard Reset...');
-                setTimeout(() => this.joinParty(this.partyId, retryAttempts + 1), 2000);
             }
         });
     }
 
-    connectToHost(retryAttempts) {
-        // Reliable: true (TCP) - Best for Firewall Traversal
+    connectToHost() {
+        if (!this.peer || this.peer.destroyed) return;
+
+        console.log('📡 Dialing Host:', this.partyId);
+
+        // Reliable: true (TCP) - User confirmed this "worked slowly" before
         const conn = this.peer.connect(this.partyId, { reliable: true });
 
         conn.on('open', () => {
-            clearTimeout(this.connectionTimer);
+            if (this.connectionTimer) clearTimeout(this.connectionTimer);
             console.log('✅ Channel OPEN!');
             this.connections.set(this.partyId, conn);
 
@@ -165,19 +151,14 @@ export class NetworkManager {
             });
         });
 
-        // Auto-Retry on ICE failure -> TRIGGERS HARD RESET
         conn.peerConnection.oniceconnectionstatechange = () => {
-            // Safe check in case conn closed immediately
-            if (!conn.peerConnection) return;
-
             const state = conn.peerConnection.iceConnectionState;
             console.log(`🧊 ICE State: ${state}`);
 
-            if (state === 'disconnected' || state === 'failed') {
-                console.warn('⚠️ ICE Failed. Triggering HARD RESET...');
-                conn.close();
-                // Destroy Peer and Start Over (New ID, Fresh NAT)
-                setTimeout(() => this.joinParty(this.partyId, retryAttempts + 1), 1000);
+            if (state === 'disconnected') {
+                console.warn('⚠️ ICE Disconnected. Waiting for recovery...');
+                // Do NOT close/hard reset immediately. ICE can sometimes recover.
+                // PeerJS naturally handles some retries.
             }
         };
 
@@ -185,7 +166,6 @@ export class NetworkManager {
 
         conn.on('close', () => {
             console.log('❌ Connection closed');
-            // Only handle disconnect if we were fully connected
             if (this.connections.has(this.partyId)) {
                 this.handleHostDisconnect();
             }
@@ -482,7 +462,7 @@ export class NetworkManager {
     generatePartyId() {
         const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
         let id = '';
-        for (let i = 0; i < 6; i++) {
+        for (let i = 6; i--;) { // slightly optimized loop for random id
             id += chars[Math.floor(Math.random() * chars.length)];
         }
         return id;
